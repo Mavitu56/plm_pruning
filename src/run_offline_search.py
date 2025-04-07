@@ -16,6 +16,7 @@ from transformers import (
     HfArgumentParser,
     TrainingArguments,
     set_seed,
+    BitsAndBytesConfig
 )
 
 from evaluate import load
@@ -30,6 +31,7 @@ from search_spaces import (
     MediumSearchSpace,
     LayerSearchSpace,
     FullSearchSpace,
+    LlamaAdaptiveSearchSpace,
 )
 from hf_args import DataTrainingArguments, ModelArguments, parse_model_name
 from data_wrapper import Glue, IMDB, SWAG
@@ -43,6 +45,7 @@ SEARCHSPACES = {
     "layer": LayerSearchSpace,
     "large": FullSearchSpace,
     "smallpower2": partial(SmallSearchSpace, power_of_2_encoding=True),
+    "llama_adaptive": LlamaAdaptiveSearchSpace,
 }
 
 logger = logging.getLogger(__name__)
@@ -69,6 +72,12 @@ class SearchArguments:
     num_samples: int = field(default=500)
     log_dir: str = field(metadata={"help": ""}, default="./tensorboard_log_dir")
     optimize_memory_footprint: bool = field(metadata={}, default=False)
+    load_in_8bit: bool = field(
+        default=False, metadata={"help": "Load model in 8-bit quantization"}
+    )
+    load_in_4bit: bool = field(
+        default=False, metadata={"help": "Load model in 4-bit quantization"}
+    )
 
 
 def main():
@@ -127,6 +136,10 @@ def main():
         metric = load("accuracy")
         metric_name = "accuracy"
 
+    # Configure padding side for causal models like Llama
+    if "llama" in model_type.lower() and hasattr(data_args, "padding_side"):
+        data.tokenizer.padding_side = data_args.padding_side
+
     _, eval_dataloader, test_dataloader = data.get_data_loaders()
 
     is_regression = data_args.task_name == "stsb"
@@ -135,27 +148,74 @@ def main():
 
     st = time.time()
 
+    # Determine model family
     if model_type.startswith("bert"):
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
+    elif "llama" in model_type.lower():
+        model_family = "llama"
     else:
         logging.error(
             f"Model type {model_type} are not supported. "
-            f"We only support models of the BERT or RoBERTa family."
+            f"We only support models of the BERT, RoBERTa, or Llama family."
         )
         raise NotImplementedError
 
-    if data_args.task_name in ["swag"]:
-        model_cls = model_types[model_family]["multiple_choice"][
-            search_args.search_space
-        ]
-    else:
-        model_cls = model_types[model_family]["seq_classification"][
-            search_args.search_space
-        ]
+    # Configure torch dtype for better memory efficiency with Llama models
+    torch_dtype = None
+    if hasattr(model_args, "torch_dtype"):
+        if model_args.torch_dtype == "auto":
+            torch_dtype = "auto"
+        elif model_args.torch_dtype == "bfloat16":
+            torch_dtype = torch.bfloat16
+        elif model_args.torch_dtype == "float16":
+            torch_dtype = torch.float16
+        elif model_args.torch_dtype == "float32":
+            torch_dtype = torch.float32
 
-    model = model_cls.from_pretrained(search_args.checkpoint_dir_model)
+    # Configure attention implementation for Llama
+    attn_implementation = None
+    if hasattr(model_args, "attn_implementation"):
+        attn_implementation = model_args.attn_implementation
+
+    # Select appropriate model class based on the model family and task
+    if data_args.task_name in ["swag"]:
+        model_cls = model_types[model_family]["multiple_choice"][search_args.search_space]
+    else:
+        model_cls = model_types[model_family]["seq_classification"][search_args.search_space]
+
+    # Prepare quantization config if needed
+    quantization_config = None
+    if search_args.load_in_8bit:
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_threshold=6.0,
+            llm_int8_has_fp16_weight=False,
+        )
+    elif search_args.load_in_4bit:
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+    
+    # Load model with appropriate configurations
+    model_loading_kwargs = {}
+    if model_family == "llama":
+        model_loading_kwargs = {
+            "torch_dtype": torch_dtype,
+            "attn_implementation": attn_implementation,
+            "quantization_config": quantization_config,
+            "trust_remote_code": True if hasattr(model_args, "trust_remote_code") and 
+                                         model_args.trust_remote_code else None,
+        }
+    
+    model = model_cls.from_pretrained(
+        search_args.checkpoint_dir_model, 
+        **{k: v for k, v in model_loading_kwargs.items() if v is not None}
+    )
     model_data = get_model_data(model)
 
     attention_head_size = model_data["attention_head_size"]
@@ -177,6 +237,7 @@ def main():
             dhead=attention_head_size,
             num_heads_per_layer=head_mask.sum(dim=1),
             num_neurons_per_layer=ffn_mask.sum(dim=1),
+            model_type=model_family,  # Pass model family for correct parameter calculation
         )
         n_params = n_params_emb + n_params_model + n_params_classifier
 
@@ -233,6 +294,10 @@ def main():
     results["data_loading_time"] = data_loading_time
     results["runtime"] = list(search_results["runtime"])
     results["indices"] = list(idx)
+    
+    # Add model type information to results
+    results["model_family"] = model_family
+    results["search_space"] = search_args.search_space
 
     fname = os.path.join(
         training_args.output_dir, f"results_{data_args.task_name}.json"
