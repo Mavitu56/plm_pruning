@@ -52,7 +52,7 @@ ylims["roberta-base"] = {
     "mnli": (0.0, 0.7),
     "qqp": (0.0, 1.7),
 }
-ylims["llama-7b-meta"] = {
+ylims["meta-llama/Llama-2-7b-hf"] = {
     "rte": (0.2, 0.5),
     "stsb": (0.3, 0.8),
     "cola": (0.3, 0.7),

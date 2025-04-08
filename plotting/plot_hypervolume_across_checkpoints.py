@@ -36,7 +36,7 @@ checkpoint_names = [
 ]
 
 ylims = {}
-ylims["llama-7b-meta"] = {
+ylims["meta-llama/Llama-2-7b-hf"] = {
     "rte": (0.2, 0.5),
     "stsb": (0.3, 0.8),
     "cola": (0.3, 0.7),

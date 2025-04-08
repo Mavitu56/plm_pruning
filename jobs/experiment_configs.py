@@ -30,7 +30,7 @@ def create_output_dir(params):
 
 experiment_config = {
     "tasks": ["rte", 'mrpc', 'cola', 'stsb', 'swag', 'imdb', 'sst2', 'qnli'],
-    "model_types": ["bert-base-cased", 'roberta-base', 'llama-7b-meta'],
+    "model_types": ["bert-base-cased", 'roberta-base', 'meta-llama/Llama-2-7b-hf'],
     "sampling_strategy": ["standard",  'random', 'random_linear', 'sandwich', 'full', 'kd'],
     "search_methods": ["random_search", 'local_search', 'ehvi', 'morea'],
     "search_space": ["small", 'medium', 'large', 'layer', 'llama_adaptive'],
@@ -53,5 +53,5 @@ training_hyperparameters = {
 runtimes = {
     "bert-base-cased": int(60 * 24),
     "roberta-base": int(60 * 24),
-    "llama-7b-meta": int(60 * 48),
+    "meta-llama/Llama-2-7b-hf": int(60 * 48),
 }

@@ -29,7 +29,7 @@ methods = [
 
 checkpoints = ["random_linear", "sandwich", "full", "standard", "random", "kd"]
 epochs = [5]
-models = ["bert-base-cased", "roberta-base", "llama-7b-meta"]
+models = ["bert-base-cased", "roberta-base", "meta-llama/Llama-2-7b-hf"]
 labels = checkpoints
 
 ref_point = [2, 2]
