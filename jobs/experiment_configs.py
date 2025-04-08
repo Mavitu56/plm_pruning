@@ -30,10 +30,10 @@ def create_output_dir(params):
 
 experiment_config = {
     "tasks": ["rte", 'mrpc', 'cola', 'stsb', 'swag', 'imdb', 'sst2', 'qnli'],
-    "model_types": ["bert-base-cased", 'roberta-base'],
+    "model_types": ["bert-base-cased", 'roberta-base', 'llama-7b-meta'],
     "sampling_strategy": ["standard",  'random', 'random_linear', 'sandwich', 'full', 'kd'],
     "search_methods": ["random_search", 'local_search', 'ehvi', 'morea'],
-    "search_space": ["small", 'medium', 'large', 'layer'],
+    "search_space": ["small", 'medium', 'large', 'layer', 'llama_adaptive'],
     "seed": [0, 1, 2, 3, 4],
 }
 
@@ -46,4 +46,12 @@ training_hyperparameters = {
     "num_train_epochs": 5,
     "eval_batch_size": 8,
     "train_batch_size": 4,
+    "trust_remote_code": True,
+    "padding_side": "left",
+}
+
+runtimes = {
+    "bert-base-cased": int(60 * 24),
+    "roberta-base": int(60 * 24),
+    "llama-7b-meta": int(60 * 48),
 }

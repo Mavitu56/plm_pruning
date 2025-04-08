@@ -34,6 +34,27 @@ checkpoint_names = [
     "full",
     "kd",
 ]
+
+ylims = {}
+ylims["llama-7b-meta"] = {
+    "rte": (0.2, 0.5),
+    "stsb": (0.3, 0.8),
+    "cola": (0.3, 0.7),
+    "mrpc": (0.2, 0.7),
+    "swag": (0.3, 0.7),
+    "sst2": (0.2, 0.5),
+    "imdb": (0.4, 0.7),
+    "qnli": (0.3, 0.7),
+}
+
+labels = {
+    "small": "Small",
+    "medium": "Medium",
+    "layer": "Layer",
+    "large": "Large",
+    "llama_adaptive": "Llama-Adaptive",
+}
+
 for dataset, df_benchmark in df.groupby("dataset"):
     plt.figure(dpi=200)
     vals, xs = [], []

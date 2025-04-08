@@ -52,6 +52,16 @@ ylims["roberta-base"] = {
     "mnli": (0.0, 0.7),
     "qqp": (0.0, 1.7),
 }
+ylims["llama-7b-meta"] = {
+    "rte": (0.2, 0.5),
+    "stsb": (0.3, 0.8),
+    "cola": (0.3, 0.7),
+    "mrpc": (0.2, 0.7),
+    "swag": (0.3, 0.7),
+    "sst2": (0.2, 0.5),
+    "imdb": (0.4, 0.7),
+    "qnli": (0.3, 0.7),
+}
 marker = ["o", "x", "s", "d", "p", "P", "^", "v", "<", ">"]
 methods = []
 
@@ -128,3 +138,11 @@ for model, df_model in df.groupby("model"):
     plt.xlabel("time steps", fontsize=20)
     plt.ylabel("average rank", fontsize=15)
     plt.show()
+
+labels = {
+    "small": "Small",
+    "medium": "Medium",
+    "layer": "Layer",
+    "large": "Large",
+    "llama_adaptive": "Llama-Adaptive",
+}
