@@ -321,6 +321,10 @@ def main():
             print(f"Store checkpoint in: {training_args.output_dir}")
             model.save_pretrained(training_args.output_dir)
 
+            # Adicione estas linhas para salvar o tokenizer
+            data.tokenizer.save_pretrained(training_args.output_dir)
+            print(f"Saved tokenizer to: {training_args.output_dir}")
+
     model.eval()
     for batch in test_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
