@@ -5,7 +5,6 @@ from model_wrapper.mask import (
     mask_gpt,
     mask_gpt_neox,
     mask_roberta,
-    mask_llama,
 )
 
 
@@ -135,42 +134,6 @@ def get_model_data(model):
         n_params_classifier = sum(
             p.numel() for p in model.score.parameters() if p.requires_grad
         )
-
-        n_params_classifier += final_ln
-        
-    elif model_type == "llama":
-        model.config.pad_token_id = model.config.eos_token_id
-        mask = mask_llama
-
-        num_attention_heads = config.num_attention_heads
-        attention_size = config.hidden_size
-        attention_head_size = int(attention_size / num_attention_heads)
-        num_layers = config.num_hidden_layers
-        intermediate_size = config.intermediate_size
-
-        # Para Llama, o embedding é apenas o token embedding (não tem position embedding separado)
-        n_params_emb = sum(
-            p.numel() for p in model.model.embed_tokens.parameters() if p.requires_grad
-        )
-        
-        # Llama tem um norm final
-        final_ln = sum(
-            p.numel()
-            for p in model.model.norm.parameters()
-            if p.requires_grad
-        )
-        
-        # O lm_head é o classificador final nos modelos de classificação de sequência
-        if hasattr(model, "lm_head"):
-            n_params_classifier = sum(
-                p.numel() for p in model.lm_head.parameters() if p.requires_grad
-            )
-        elif hasattr(model, "classifier"):
-            n_params_classifier = sum(
-                p.numel() for p in model.classifier.parameters() if p.requires_grad
-            )
-        else:
-            n_params_classifier = 0
 
         n_params_classifier += final_ln
 

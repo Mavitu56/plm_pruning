@@ -17,7 +17,6 @@ from transformers import (
     get_scheduler,
     HfArgumentParser,
     TrainingArguments,
-    BitsAndBytesConfig,
 )
 
 from hf_args import DataTrainingArguments, ModelArguments, parse_model_name
@@ -108,23 +107,6 @@ def main():
     # Define model
     model_type = parse_model_name(model_args)
 
-    # Configure torch dtype for better memory efficiency with Llama models
-    torch_dtype = None
-    if hasattr(model_args, "torch_dtype"):
-        if model_args.torch_dtype == "auto":
-            torch_dtype = "auto"
-        elif model_args.torch_dtype == "bfloat16":
-            torch_dtype = torch.bfloat16
-        elif model_args.torch_dtype == "float16":
-            torch_dtype = torch.float16
-        elif model_args.torch_dtype == "float32":
-            torch_dtype = torch.float32
-
-    # Configure attention implementation for Llama
-    attn_implementation = None
-    if hasattr(model_args, "attn_implementation"):
-        attn_implementation = model_args.attn_implementation
-
     config = AutoConfig.from_pretrained(
         model_type,
         num_labels=num_labels,
@@ -132,61 +114,24 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
     )
 
-    # Determine the model family for proper selection
     if model_type.startswith("bert"):
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
-    elif "llama" in model_type.lower():
-        model_family = "llama"
     else:
         logging.error(
             f"Model type {model_type} are not supported. "
-            f"We only support models of the BERT, RoBERTa, or Llama family."
+            f"We only support models of the BERT or RoBERTa family."
         )
         raise NotImplementedError
 
-    # Set appropriate model class based on the task and model family
-    if model_family == "llama":
-        if data_args.task_name in ["swag"]:
-            # For multiple choice tasks
-            model_cls = model_types["llama"]["seq_classification"]["small"]
-            # Llama doesn't have a dedicated multiple choice class, using seq classification
-        else:
-            model_cls = model_types["llama"]["seq_classification"]["small"]
+    if data_args.task_name in ["swag"]:
+        model_cls = model_types[model_family]["multiple_choice"]["small"]
     else:
-        if data_args.task_name in ["swag"]:
-            model_cls = model_types[model_family]["multiple_choice"]["small"]
-        else:
-            model_cls = model_types[model_family]["seq_classification"]["small"]
+        model_cls = model_types[model_family]["seq_classification"]["small"]
 
-    # Configure padding side for causal models like Llama
-    if model_family == "llama" and hasattr(data_args, "padding_side"):
-        data.tokenizer.padding_side = data_args.padding_side
-
-    # Configure quantization for Llama models
-    quantization_config = None
-    if model_family == "llama":
-        if hasattr(model_args, "load_in_8bit") and model_args.load_in_8bit:
-            quantization_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-                llm_int8_threshold=6.0,
-                llm_int8_has_fp16_weight=False,
-            )
-        elif hasattr(model_args, "load_in_4bit") and model_args.load_in_4bit:
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-            )
-        elif hasattr(model_args, "quantization_config") and model_args.quantization_config:
-            quantization_config = BitsAndBytesConfig(**model_args.quantization_config)
-
-    # Load the model with appropriate configurations
     model = model_cls.from_pretrained(
         model_type,
         from_tf=bool(".ckpt" in model_type),
@@ -194,10 +139,6 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
-        torch_dtype=torch_dtype,
-        attn_implementation=attn_implementation,
-        quantization_config=quantization_config,
-        trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
     )
 
     model_data = get_model_data(model)
@@ -227,7 +168,6 @@ def main():
         dhead=attention_head_size,
         num_heads_per_layer=np.ones(nas_args.num_layers) * nas_args.num_heads,
         num_neurons_per_layer=np.ones(nas_args.num_layers) * nas_args.num_units,
-        model_type=model_family,  # Pass model_family to use correct parameter calculation
     )
     n_params = n_params_emb + n_params_model + n_params_classifier
 

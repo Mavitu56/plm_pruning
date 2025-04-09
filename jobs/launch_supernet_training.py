@@ -25,11 +25,6 @@ if __name__ == "__main__":
     parser.add_argument("--search_space", type=str, default=None)
     parser.add_argument("--cluster", type=str, default=None)
     parser.add_argument("--partition", type=str, default=None)
-    parser.add_argument("--load_in_8bit", action="store_true", help="Load model in 8-bit quantization")
-    parser.add_argument("--torch_dtype", type=str, choices=["auto", "float16", "bfloat16"], default=None)
-    parser.add_argument("--attn_implementation", type=str, choices=["eager", "sdpa", "flash_attention_2"], default=None)
-    parser.add_argument("--padding_side", type=str, default=None)
-    parser.add_argument("--trust_remote_code", action="store_true")
 
     args, _ = parser.parse_known_args()
 
@@ -68,26 +63,6 @@ if __name__ == "__main__":
 
         params["output_dir"] = create_checkpoint_dir(params)
 
-        # Ao configurar os parâmetros do job
-        if "llama" in params.get("model_types", ""):
-            # Configurações padrão para Llama se não especificadas
-            if args.load_in_8bit:
-                params["load_in_8bit"] = True
-            if args.torch_dtype:
-                params["torch_dtype"] = args.torch_dtype
-            if args.attn_implementation:
-                params["attn_implementation"] = args.attn_implementation
-            if args.padding_side:
-                params["padding_side"] = args.padding_side
-            if args.trust_remote_code:
-                params["trust_remote_code"] = True
-
-        # Ajustar requisitos de memória para Llama
-        if "llama" in params.get("model_types", ""):
-            mem_requirement = 1024 * 32  # 32GB para Llama
-        else:
-            mem_requirement = 1024 * 8   # 8GB para BERT/RoBERTa
-
         jobinfo = JobCreationInfo(
             cluster=cluster,
             partition=partition,
@@ -96,7 +71,7 @@ if __name__ == "__main__":
             src_dir=str(Path(__file__).parent.parent / "src"),
             n_cpus=1,
             n_gpus=1,
-            mem=mem_requirement,
+            mem=1024 * 8,
             max_runtime_minutes=max_runtime_minutes,
             # Shows how to pass an environment variable to the running script
             env={key.upper(): value for key, value in params.items()},

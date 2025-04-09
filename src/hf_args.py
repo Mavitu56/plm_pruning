@@ -11,17 +11,6 @@ def parse_model_name(model_args):
         model_type = "google/electra-small-discriminator"
     elif model_args.model_name_or_path.startswith("pythia"):
         model_type = "EleutherAI/" + model_args.model_name_or_path
-    elif model_args.model_name_or_path.startswith("llama-"):
-        # Handle common Llama model references
-        size = model_args.model_name_or_path.split("-")[1]
-        if "meta" in model_args.model_name_or_path:
-            model_type = f"meta-llama/Llama-2-{size}-hf"
-        else:
-            # Default to Meta's Llama 2 models
-            model_type = f"meta-llama/Llama-2-{size}-hf"
-    elif model_args.model_name_or_path.startswith("tiiuae/falcon"):
-        # Direct mapping for Falcon models
-        model_type = model_args.model_name_or_path
     else:
         model_type = model_args.model_name_or_path
     return model_type
@@ -80,15 +69,10 @@ class DataTrainingArguments:
             "If False, will pad the samples dynamically when batching to the maximum length in the batch."
         },
     )
+
     is_regression: bool = field(
         default=False,
         metadata={"help": "Specifies if dataset is a regression dataset."},
-    )
-    padding_side: str = field(
-        default="right",
-        metadata={
-            "help": "Padding side for tokenization (right for BERT/Electra, left for causal LMs like Llama)"
-        },
     )
 
 
@@ -127,38 +111,4 @@ class ModelArguments:
             "help": "Will use the token generated when running `transformers-cli login` (necessary to use this script "
             "with private models)."
         },
-    )
-    trust_remote_code: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether to trust remote code when loading models from HuggingFace Hub"
-        },
-    )
-    torch_dtype: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Override the default `torch.dtype` and load the model under a specific dtype. "
-            "Available options: 'auto', 'bfloat16', 'float16', 'float32'",
-            "choices": ["auto", "bfloat16", "float16", "float32"],
-        },
-    )
-    attn_implementation: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Implementation of attention to use for Llama models "
-            "Available options: 'eager', 'sdpa', 'flash_attention_2'",
-            "choices": ["eager", "sdpa", "flash_attention_2"],
-        },
-    )
-    load_in_8bit: bool = field(
-        default=False,
-        metadata={"help": "Whether to load the model in 8-bit quantization."},
-    )
-    load_in_4bit: bool = field(
-        default=False,
-        metadata={"help": "Whether to load the model in 4-bit quantization."},
-    )
-    quantization_config: Optional[dict] = field(
-        default=None,
-        metadata={"help": "Additional quantization configuration parameters."},
     )

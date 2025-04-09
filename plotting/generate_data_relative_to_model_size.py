@@ -65,7 +65,6 @@ original_model_size = {
     "gpt2": 124441344,
     "gpt2-medium": 354825216,
     "roberta-base": 124647170,
-    "meta-llama/Llama-2-7b-hf": 7000000000,  # 7B para Llama 7B
 }
 
 data = defaultdict(list)

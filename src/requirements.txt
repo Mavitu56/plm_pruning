@@ -4,9 +4,5 @@ transformers[torch]
 datasets
 evaluate
 tqdm
+git+https://github.com/syne-tune/syne-tune.git
 git+https://github.com/whittle-org/whittle.git
-accelerate>=0.25.0
-bitsandbytes>=0.41.0
-flash-attn>=2.3.0
-sentencepiece
-protobuf

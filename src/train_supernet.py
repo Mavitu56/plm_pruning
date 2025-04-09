@@ -20,7 +20,6 @@ from transformers import (
     HfArgumentParser,
     TrainingArguments,
     set_seed,
-    BitsAndBytesConfig,
 )
 
 from whittle.sampling import RandomSampler
@@ -36,7 +35,6 @@ from search_spaces import (
     SmallSearchSpace,
     LayerSearchSpace,
     MediumSearchSpace,
-    LlamaAdaptiveSearchSpace,
 )
 from data_wrapper.task_data import GLUE_TASK_INFO
 from hf_args import DataTrainingArguments, ModelArguments, parse_model_name
@@ -61,16 +59,6 @@ from roberta import (
     SuperNetRobertaForSequenceClassificationLAYER,
     SuperNetRobertaForSequenceClassificationLARGE,
 )
-from llama import (
-    SuperNetLlamaForSequenceClassificationSMALL,
-    SuperNetLlamaForSequenceClassificationMEDIUM,
-    SuperNetLlamaForSequenceClassificationLAYER,
-    SuperNetLlamaForSequenceClassificationLARGE,
-    SuperNetLlamaModelSMALL,
-    SuperNetLlamaModelMEDIUM,
-    SuperNetLlamaModelLAYER,
-    SuperNetLlamaModelLARGE,
-)
 
 
 def kd_loss(
@@ -93,7 +81,6 @@ search_spaces = {
     "medium": MediumSearchSpace,
     "layer": LayerSearchSpace,
     "large": FullSearchSpace,
-    "llama_adaptive": LlamaAdaptiveSearchSpace,
 }
 
 model_types = dict()
@@ -123,20 +110,6 @@ model_types["roberta"] = {
         "medium": SuperNetRobertaForMultipleChoiceMEDIUM,
         "layer": SuperNetRobertaForMultipleChoiceLAYER,
         "large": SuperNetRobertaForMultipleChoiceLARGE,
-    },
-}
-model_types["llama"] = {
-    "seq_classification": {
-        "small": SuperNetLlamaForSequenceClassificationSMALL,
-        "medium": SuperNetLlamaForSequenceClassificationMEDIUM,
-        "layer": SuperNetLlamaForSequenceClassificationLAYER,
-        "large": SuperNetLlamaForSequenceClassificationLARGE,
-    },
-    "multiple_choice": {
-        "small": SuperNetLlamaModelSMALL,  # Llama doesn't have dedicated multiple choice class
-        "medium": SuperNetLlamaModelMEDIUM,
-        "layer": SuperNetLlamaModelLAYER,
-        "large": SuperNetLlamaModelLARGE,
     },
 }
 
@@ -192,23 +165,6 @@ def main():
         metric = evaluate.load("accuracy")
         metric_name = "accuracy"
 
-    # Configure torch dtype for better memory efficiency with Llama models
-    torch_dtype = None
-    if hasattr(model_args, "torch_dtype"):
-        if model_args.torch_dtype == "auto":
-            torch_dtype = "auto"
-        elif model_args.torch_dtype == "bfloat16":
-            torch_dtype = torch.bfloat16
-        elif model_args.torch_dtype == "float16":
-            torch_dtype = torch.float16
-        elif model_args.torch_dtype == "float32":
-            torch_dtype = torch.float32
-
-    # Configure attention implementation for Llama
-    attn_implementation = None
-    if hasattr(model_args, "attn_implementation"):
-        attn_implementation = model_args.attn_implementation
-
     train_dataloader, eval_dataloader, test_dataloader = data.get_data_loaders()
     num_labels = data.num_labels
 
@@ -220,28 +176,19 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
     )
 
-    # Determine model family
     if model_type.startswith("bert"):
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
-    elif "llama" in model_type.lower():
-        model_family = "llama"
     else:
         print(
             f"Model type {model_type} are not supported. "
-            f"We only support models of the BERT, RoBERTa, or Llama family."
+            f"We only support models of the BERT or RoBERTa family."
         )
         raise NotImplementedError
 
-    # Configure padding side for causal models like Llama
-    if model_family == "llama" and hasattr(data_args, "padding_side"):
-        data.tokenizer.padding_side = data_args.padding_side
-
-    # Select appropriate model class based on the model family and task
     if data_args.task_name in ["swag"]:
         model_cls = model_types[model_family]["multiple_choice"][nas_args.search_space]
     else:
@@ -249,56 +196,16 @@ def main():
             nas_args.search_space
         ]
 
-    # Select the appropriate search space - use llama_adaptive if specified for Llama models
-    if model_family == "llama" and nas_args.search_space == "llama_adaptive":
-        search_space = search_spaces["llama_adaptive"](config, seed=training_args.seed)
-    else:
-        search_space = search_spaces[nas_args.search_space](config, seed=training_args.seed)
+    search_space = search_spaces[nas_args.search_space](config, seed=training_args.seed)
 
-    # Load the model with appropriate configurations
-    if model_family == "llama":
-        # Configuração de quantização
-        quantization_config = None
-        if hasattr(model_args, "load_in_8bit") and model_args.load_in_8bit:
-            quantization_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-                llm_int8_threshold=6.0,
-                llm_int8_has_fp16_weight=False,
-            )
-        elif hasattr(model_args, "load_in_4bit") and model_args.load_in_4bit:
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-            )
-        elif hasattr(model_args, "quantization_config") and model_args.quantization_config:
-            quantization_config = BitsAndBytesConfig(**model_args.quantization_config)
-        
-        model = model_cls.from_pretrained(
-            model_type,
-            from_tf=bool(".ckpt" in model_type),
-            config=config,
-            cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            torch_dtype=torch_dtype,
-            attn_implementation=attn_implementation,
-            quantization_config=quantization_config,
-            trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
-        )
-    else:
-        model = model_cls.from_pretrained(
-            model_type,
-            from_tf=bool(".ckpt" in model_type),
-            config=config,
-            cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            torch_dtype=torch_dtype,
-            attn_implementation=attn_implementation,
-            trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
-        )
+    model = model_cls.from_pretrained(
+        model_type,
+        from_tf=bool(".ckpt" in model_type),
+        config=config,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
+    )
 
     optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 

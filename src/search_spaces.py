@@ -11,28 +11,15 @@ class SearchSpace:
 
     def __init__(self, config, seed=None, **kwargs):
         self.config = config
-        self.model_type = getattr(config, "model_type", "")
 
-        # Handle different model architectures
-        if self.model_type == "gpt2":
+        if config.model_type == "gpt2":
             self.num_heads = config.n_head
             self.num_layers = config.n_layer
             self.intermediate_size = (
                 config.n_inner if config.n_inner is not None else 4 * config.hidden_size
             )
-        elif self.model_type == "llama":
-            # Llama uses different attribute names
-            self.num_heads = config.num_attention_heads
-            self.num_layers = config.num_hidden_layers
-            # For Llama, intermediate size is typically hidden_size * 4 / 3 * 2
-            # (for up_proj + gate_proj combined)
-            if hasattr(config, "intermediate_size"):
-                self.intermediate_size = config.intermediate_size
-            else:
-                # Default for Llama is typically 4 * hidden_size for both projections combined
-                self.intermediate_size = 4 * config.hidden_size // 3 * 2
+
         else:
-            # Default structure for BERT and similar models
             self.num_heads = config.num_attention_heads
             self.num_layers = config.num_hidden_layers
             self.intermediate_size = config.intermediate_size
@@ -78,6 +65,7 @@ class SmallSearchSpace(SearchSpace):
         return config_space
 
     def __call__(self, *args, **kwargs):
+
         config = {
             k: v.sample() if isinstance(v, Domain) else v
             for k, v in self.config_space.items()
@@ -232,8 +220,8 @@ class FullSearchSpace(SearchSpace):
         mask = torch.ones((K))
         mask[idx] = 0
         h = self.num_layers * self.num_heads
-        head_mask = mask[:h].reshape(self.num_layers, self.num_heads)
-        ffn_mask = mask[h:].reshape(self.num_layers, self.intermediate_size)
+        head_mask = mask[:h].resize(self.num_layers, self.num_heads)
+        ffn_mask = mask[h:].resize(self.num_layers, self.intermediate_size)
         return head_mask, ffn_mask
 
     def get_smallest_sub_network(self):
@@ -264,71 +252,4 @@ class FullSearchSpace(SearchSpace):
                 if config[f"layer_ffn_{i}_{j}"] == 1:
                     ffn_mask[i, j] = 1
 
-        return head_mask, ffn_mask
-
-
-# Additional search space specifically optimized for Llama architecture
-class LlamaAdaptiveSearchSpace(SearchSpace):
-    """
-    Search space that adapts pruning to Llama's architecture,
-    preserving more attention heads in earlier layers and more MLP units in later layers
-    based on empirical observations of their importance in Llama models.
-    """
-    
-    def _define_config_space(self, **kwargs):
-        config_space = {}
-        config_space["pruning_intensity"] = randint(1, 10)  # 1-10 scale of pruning intensity
-        return config_space
-
-    def __call__(self, *args, **kwargs):
-        config = {
-            k: v.sample() if isinstance(v, Domain) else v
-            for k, v in self.config_space.items()
-        }
-        return self.config_to_mask(config)
-
-    def config_to_mask(self, config):
-        pruning_intensity = config["pruning_intensity"] / 10.0  # Convert to 0.1-1.0 range
-        
-        # Create layer-specific pruning rates that vary across the network
-        # Keep more heads in earlier layers (important for input understanding)
-        # Keep more MLP units in later layers (important for task-specific outputs)
-        head_pruning_rates = np.linspace(0.1 * pruning_intensity, pruning_intensity, self.num_layers)
-        ffn_pruning_rates = np.linspace(pruning_intensity, 0.3 * pruning_intensity, self.num_layers)
-        
-        head_mask = torch.ones((self.num_layers, self.num_heads))
-        ffn_mask = torch.ones((self.num_layers, self.intermediate_size))
-        
-        for i in range(self.num_layers):
-            # Calculate number of heads/units to prune
-            heads_to_prune = int(self.num_heads * head_pruning_rates[i])
-            units_to_prune = int(self.intermediate_size * ffn_pruning_rates[i])
-            
-            # Prune heads (randomly select which ones to prune)
-            if heads_to_prune > 0:
-                prune_indices = torch.randperm(self.num_heads)[:heads_to_prune]
-                head_mask[i, prune_indices] = 0
-                
-            # Prune FFN units (randomly select which ones to prune)
-            if units_to_prune > 0:
-                prune_indices = torch.randperm(self.intermediate_size)[:units_to_prune]
-                ffn_mask[i, prune_indices] = 0
-                
-        return head_mask, ffn_mask
-
-    def get_smallest_sub_network(self):
-        # Very conservative pruning - keep 50% of heads and 70% of FFN units
-        head_mask = torch.zeros((self.num_layers, self.num_heads))
-        ffn_mask = torch.zeros((self.num_layers, self.intermediate_size))
-        
-        for i in range(self.num_layers):
-            # Keep half of heads
-            head_indices = torch.randperm(self.num_heads)[:self.num_heads // 2]
-            head_mask[i, head_indices] = 1
-            
-            # Keep 70% of units
-            units_to_keep = int(self.intermediate_size * 0.7)
-            unit_indices = torch.randperm(self.intermediate_size)[:units_to_keep]
-            ffn_mask[i, unit_indices] = 1
-            
         return head_mask, ffn_mask

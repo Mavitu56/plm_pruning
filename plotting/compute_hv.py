@@ -29,7 +29,7 @@ methods = [
 
 checkpoints = ["random_linear", "sandwich", "full", "standard", "random", "kd"]
 epochs = [5]
-models = ["bert-base-cased", "roberta-base", "meta-llama/Llama-2-7b-hf"]
+models = ["bert-base-cased", "roberta-base"]
 labels = checkpoints
 
 ref_point = [2, 2]
@@ -42,7 +42,6 @@ search_spaces = [
     "small",
     "medium",
     "large",
-    "llama_adaptive"
 ]
 
 runtimes = {
@@ -54,7 +53,6 @@ runtimes = {
     "imdb": np.linspace(500, 10000, 100),
     "swag": np.linspace(500, 5000, 100),
     "qnli": np.linspace(200, 2000, 100),
-    "llama_sst2": np.linspace(300, 2000, 100),
 }
 data = defaultdict(list)
 hv = HyperVolume(ref_point=ref_point)

@@ -7,7 +7,7 @@ from syne_tune.optimizer.baselines import (
     MOREA,
     NSGA2,
     MORandomScalarizationBayesOpt,
-    LegacyMOASHA,
+    MOASHA,
     EHVI,
 )
 
