@@ -1,6 +1,6 @@
 scikit-learn
 numpy
-transformers[torch]>=4.36.0
+transformers[torch]
 datasets
 evaluate
 tqdm
