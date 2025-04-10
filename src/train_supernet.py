@@ -23,7 +23,7 @@ from transformers import (
     BitsAndBytesConfig,
 )
 
-from whittle.sampling import RandomSampler
+from whittle.sampling.random_sampler import RandomSampler
 from whittle.training_strategies import (
     RandomLinearStrategy,
     RandomStrategy,
