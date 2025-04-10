@@ -13,17 +13,41 @@ class DataWrapper:
         self.training_args = training_args
         self.model_args = model_args
         self.data_args = data_args
-        self.model_type = model_args.model_name_or_path
+        self.model_type = parse_model_name(model_args)
 
         # Load tokenizer
         self.tokenizer = self.get_tokenizer()
 
+        # Configuração específica para modelos LLM como GPT-2 e Llama
         if (
             self.model_type.startswith("gpt2")
             or "pythia" in self.model_type
             or self.model_type.startswith("distilgpt2")
         ):
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        
+        # Configuração específica para Llama
+        elif "llama" in self.model_type.lower():
+            # Definir tokens especiais para Llama se não estiverem definidos
+            special_tokens_dict = dict()
+            if self.tokenizer.pad_token is None:
+                special_tokens_dict["pad_token"] = "[PAD]"
+            if self.tokenizer.eos_token is None:
+                special_tokens_dict["eos_token"] = "</s>"
+            if self.tokenizer.bos_token is None:
+                special_tokens_dict["bos_token"] = "<s>"
+            if self.tokenizer.unk_token is None:
+                special_tokens_dict["unk_token"] = "<unk>"
+                
+            # Adicionar tokens especiais se necessário
+            if special_tokens_dict:
+                self.tokenizer.add_special_tokens(special_tokens_dict)
+            
+            # Definir o lado de padding (importante para modelos causais como Llama)
+            if hasattr(self.data_args, "padding_side"):
+                self.tokenizer.padding_side = self.data_args.padding_side
+            else:
+                self.tokenizer.padding_side = "left"  # Default recomendado para modelos causais
 
         # Padding strategy
         if self.data_args.pad_to_max_length:
