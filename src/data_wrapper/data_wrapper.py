@@ -4,6 +4,10 @@ from torch.utils.data import DataLoader
 
 from transformers import AutoTokenizer, DataCollatorWithPadding, default_data_collator
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from hf_args import parse_model_name
 
 logger = logging.getLogger(__name__)
 
