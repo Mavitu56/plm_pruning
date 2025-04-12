@@ -255,6 +255,10 @@ def main():
     else:
         search_space = search_spaces[nas_args.search_space](config, seed=training_args.seed)
 
+    # Configure device map
+    device_map = "cuda" if torch.cuda.is_available() else None
+    print(f"Usando device_map: {device_map}")
+
     # Load the model with appropriate configurations
     if model_family == "llama":
         # Configuração de quantização
@@ -286,6 +290,7 @@ def main():
             attn_implementation=attn_implementation,
             quantization_config=quantization_config,
             trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
+            device_map=device_map,  # Garante inicialização na GPU
         )
     else:
         model = model_cls.from_pretrained(
@@ -298,6 +303,7 @@ def main():
             torch_dtype=torch_dtype,
             attn_implementation=attn_implementation,
             trust_remote_code=True if hasattr(model_args, "trust_remote_code") and model_args.trust_remote_code else None,
+            device_map=device_map,  # Garante inicialização na GPU
         )
 
     optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
