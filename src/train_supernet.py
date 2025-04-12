@@ -70,6 +70,8 @@ from llama import (
     SuperNetLlamaModelMEDIUM,
     SuperNetLlamaModelLAYER,
     SuperNetLlamaModelLARGE,
+    LlamaModel,
+    SuperNetLlamaForSequenceClassification
 )
 
 
