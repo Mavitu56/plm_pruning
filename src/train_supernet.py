@@ -219,12 +219,12 @@ def main():
     )
 
     # Determinar família do modelo
-    if model_type.startswith("bert"):
+    if "llama" in model_type.lower():
+        model_family = "llama"
+    elif model_type.startswith("bert"):
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
-    elif model_type.startswith("llama"):
-        model_family = "llama"
     else:
         print(
             f"Model type {model_type} is not supported. "
