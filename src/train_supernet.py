@@ -39,6 +39,8 @@ from search_spaces import (
 from data_wrapper.task_data import GLUE_TASK_INFO
 from hf_args import DataTrainingArguments, ModelArguments, parse_model_name
 from data_wrapper import Glue, IMDB, SWAG
+
+# Import BERT classes
 from bert import (
     SuperNetBertForMultipleChoiceSMALL,
     SuperNetBertForMultipleChoiceMEDIUM,
@@ -49,6 +51,7 @@ from bert import (
     SuperNetBertForSequenceClassificationLAYER,
     SuperNetBertForSequenceClassificationLARGE,
 )
+# Import RoBERTa classes
 from roberta import (
     SuperNetRobertaForMultipleChoiceSMALL,
     SuperNetRobertaForMultipleChoiceMEDIUM,
@@ -59,21 +62,30 @@ from roberta import (
     SuperNetRobertaForSequenceClassificationLAYER,
     SuperNetRobertaForSequenceClassificationLARGE,
 )
+# Import LLaMA classes (modelo hipotético; ajuste conforme seu arquivo llama.py)
+from llama import (
+    SuperNetLlamaForMultipleChoiceSMALL,
+    SuperNetLlamaForMultipleChoiceMEDIUM,
+    SuperNetLlamaForMultipleChoiceLAYER,
+    SuperNetLlamaForMultipleChoiceLARGE,
+    SuperNetLlamaForSequenceClassificationSMALL,
+    SuperNetLlamaForSequenceClassificationMEDIUM,
+    SuperNetLlamaForSequenceClassificationLAYER,
+    SuperNetLlamaForSequenceClassificationLARGE,
+)
 
 
-def kd_loss(
-    student_output, targets, teacher_output, temperature=1, is_regression=False
-):
+def kd_loss(student_output, targets, teacher_output, temperature=1, is_regression=False):
     teacher_logits = teacher_output.logits.detach()
     student_logits = student_output.logits
     if is_regression:
         return F.mse_loss(student_logits, teacher_logits)
     else:
-        kd_loss = F.cross_entropy(
+        kd_loss_val = F.cross_entropy(
             student_logits / temperature, F.softmax(teacher_logits / temperature, dim=1)
         )
         predictive_loss = F.cross_entropy(student_logits, targets)
-        return temperature ** 2 * kd_loss + predictive_loss
+        return temperature**2 * kd_loss_val + predictive_loss
 
 
 search_spaces = {
@@ -112,6 +124,21 @@ model_types["roberta"] = {
         "large": SuperNetRobertaForMultipleChoiceLARGE,
     },
 }
+# Novo bloco para LLaMA
+model_types["llama"] = {
+    "seq_classification": {
+        "small": SuperNetLlamaForSequenceClassificationSMALL,
+        "medium": SuperNetLlamaForSequenceClassificationMEDIUM,
+        "layer": SuperNetLlamaForSequenceClassificationLAYER,
+        "large": SuperNetLlamaForSequenceClassificationLARGE,
+    },
+    "multiple_choice": {
+        "small": SuperNetLlamaForMultipleChoiceSMALL,
+        "medium": SuperNetLlamaForMultipleChoiceMEDIUM,
+        "layer": SuperNetLlamaForMultipleChoiceLAYER,
+        "large": SuperNetLlamaForMultipleChoiceLARGE,
+    },
+}
 
 
 @dataclass
@@ -128,16 +155,11 @@ def main():
         (ModelArguments, DataTrainingArguments, TrainingArguments, NASArguments)
     )
 
-    (
-        model_args,
-        data_args,
-        training_args,
-        nas_args,
-    ) = parser.parse_args_into_dataclasses()
+    (model_args, data_args, training_args, nas_args) = parser.parse_args_into_dataclasses()
 
     # Set seed before initializing model.
     if int(training_args.seed) == -1:
-        training_args.seed = np.random.randint(2 ** 32 - 1)
+        training_args.seed = np.random.randint(2**32 - 1)
 
     set_seed(training_args.seed)
     torch.manual_seed(training_args.seed)
@@ -148,19 +170,25 @@ def main():
     # Load data
     if data_args.task_name in GLUE_TASK_INFO:
         data = Glue(
-            training_args=training_args, model_args=model_args, data_args=data_args
+            training_args=training_args,
+            model_args=model_args,
+            data_args=data_args,
         )
         metric = evaluate.load("glue", data_args.task_name)
         metric_name = GLUE_TASK_INFO[data_args.task_name]["metric"]
     elif data_args.task_name == "imdb":
         data = IMDB(
-            training_args=training_args, model_args=model_args, data_args=data_args
+            training_args=training_args,
+            model_args=model_args,
+            data_args=data_args,
         )
         metric = evaluate.load("accuracy")
         metric_name = "accuracy"
     elif data_args.task_name == "swag":
         data = SWAG(
-            training_args=training_args, model_args=model_args, data_args=data_args
+            training_args=training_args,
+            model_args=model_args,
+            data_args=data_args,
         )
         metric = evaluate.load("accuracy")
         metric_name = "accuracy"
@@ -178,23 +206,24 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
+    # Identificar família do modelo
     if model_type.startswith("bert"):
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
+    elif "llama" in model_type.lower():
+        model_family = "llama"
     else:
         print(
-            f"Model type {model_type} are not supported. "
-            f"We only support models of the BERT or RoBERTa family."
+            f"Model type '{model_type}' is not supported. "
+            "We only support BERT, RoBERTa, or LLaMA families."
         )
         raise NotImplementedError
 
     if data_args.task_name in ["swag"]:
         model_cls = model_types[model_family]["multiple_choice"][nas_args.search_space]
     else:
-        model_cls = model_types[model_family]["seq_classification"][
-            nas_args.search_space
-        ]
+        model_cls = model_types[model_family]["seq_classification"][nas_args.search_space]
 
     search_space = search_spaces[nas_args.search_space](config, seed=training_args.seed)
 
@@ -278,7 +307,6 @@ def main():
         train_loss = 0
         for batch in train_dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
-
             loss = update_op(model, batch, batch["labels"])
 
             step += 1
@@ -295,12 +323,10 @@ def main():
             batch = {k: v.to(device) for k, v in batch.items()}
 
             outputs = model(batch)
-
             logits = outputs.logits
             predictions = (
                 torch.squeeze(logits) if is_regression else torch.argmax(logits, dim=-1)
             )
-
             metric.add_batch(predictions=predictions, references=batch["labels"])
 
         eval_metric = metric.compute()
@@ -313,7 +339,10 @@ def main():
         )
         print(f"epoch={epoch};")
         print(f"training loss={train_loss / len(train_dataloader)};")
-        print(f"evaluation metrics={eval_metric[metric_name]};")
+        if metric_name in eval_metric:
+            print(f"evaluation metrics={eval_metric[metric_name]};")
+        else:
+            print(f"evaluation metrics={eval_metric};")
         print(f"runtime={runtime};")
 
         if training_args.save_strategy == "epoch":
@@ -321,21 +350,19 @@ def main():
             print(f"Store checkpoint in: {training_args.output_dir}")
             model.save_pretrained(training_args.output_dir)
 
-            # Adicione estas linhas para salvar o tokenizer
+            # Salva o tokenizer junto ao modelo
             data.tokenizer.save_pretrained(training_args.output_dir)
             print(f"Saved tokenizer to: {training_args.output_dir}")
 
+    # Test
     model.eval()
     for batch in test_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
-
         outputs = model(batch)
-
         logits = outputs.logits
         predictions = (
             torch.squeeze(logits) if is_regression else torch.argmax(logits, dim=-1)
         )
-
         metric.add_batch(predictions=predictions, references=batch["labels"])
 
     test_metric = metric.compute()
@@ -346,11 +373,15 @@ def main():
     results["params"] = n_params
     results["search_space"] = nas_args.search_space
     results["runtime"] = time.time() - start_time
-    results[metric_name] = float(eval_metric[metric_name])
-    results["test_" + metric_name] = float(test_metric[metric_name])
-    fname = os.path.join(
-        training_args.output_dir, f"results_{data_args.task_name}.json"
-    )
+    if metric_name in eval_metric:
+        results[metric_name] = float(eval_metric[metric_name])
+        results["test_" + metric_name] = float(test_metric[metric_name])
+    else:
+        # Caso a métrica tenha outro nome ou seja um dicionário
+        results["eval_metric"] = eval_metric
+        results["test_metric"] = test_metric
+
+    fname = os.path.join(training_args.output_dir, f"results_{data_args.task_name}.json")
     json.dump(results, open(fname, "w"))
 
 

@@ -139,6 +139,8 @@ def main():
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
+    elif "llama" in model_type.lower():
+        model_family = "llama"
     else:
         logging.error(
             f"Model type {model_type} are not supported. "
