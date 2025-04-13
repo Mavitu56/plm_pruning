@@ -1,8 +1,11 @@
 scikit-learn
 numpy
-transformers[torch]
+transformers[torch]>=4.30.0  # Versão que suporta LLaMA adequadamente
 datasets
 evaluate
 tqdm
+accelerate>=0.20.0  # Para melhor gerenciamento de memória e treinamento distribuído
+bitsandbytes>=0.40.0  # Para suporte a quantização se necessário
+sentencepiece  # Necessário para tokenização do LLaMA
 git+https://github.com/syne-tune/syne-tune.git
 git+https://github.com/whittle-org/whittle.git

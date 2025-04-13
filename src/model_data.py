@@ -5,6 +5,7 @@ from model_wrapper.mask import (
     mask_gpt,
     mask_gpt_neox,
     mask_roberta,
+    mask_llama,
 )
 
 
@@ -135,6 +136,47 @@ def get_model_data(model):
             p.numel() for p in model.score.parameters() if p.requires_grad
         )
 
+        n_params_classifier += final_ln
+
+    elif model_type.startswith("llama"):
+        model.config.pad_token_id = model.config.eos_token_id
+        mask = mask_llama
+
+        num_attention_heads = config.num_attention_heads
+        attention_size = config.hidden_size
+        attention_head_size = int(attention_size / num_attention_heads)
+        num_layers = config.num_hidden_layers
+        # LLaMA uses 4 * hidden_size by default for intermediate size
+        intermediate_size = getattr(config, "intermediate_size", 4 * config.hidden_size)
+        
+        # Get embedding parameters
+        if hasattr(model, "model"):
+            # For LLaMAForCausalLM
+            n_params_emb = sum(
+                p.numel() for p in model.model.embed_tokens.parameters() if p.requires_grad
+            )
+            # For norm at the output
+            final_ln = sum(
+                p.numel() for p in model.model.norm.parameters() if p.requires_grad
+            )
+        else:
+            # For base LLaMA models
+            n_params_emb = sum(
+                p.numel() for p in model.embed_tokens.parameters() if p.requires_grad
+            )
+            final_ln = sum(
+                p.numel() for p in model.norm.parameters() if p.requires_grad
+            )
+        
+        # LLM head is the "classifier" in this case
+        if hasattr(model, "lm_head"):
+            n_params_classifier = sum(
+                p.numel() for p in model.lm_head.parameters() if p.requires_grad
+            )
+        else:
+            # Fallback
+            n_params_classifier = 0
+            
         n_params_classifier += final_ln
 
     else:

@@ -1,6 +1,6 @@
 from transformers.models.llama.modeling_llama import (
+    LlamaForCausalLM,
     LlamaForSequenceClassification,
-    LlamaModel,
 )
 
 from model_wrapper.mask import mask_llama
@@ -12,7 +12,7 @@ from search_spaces import (
 )
 
 
-class LlamaSuperNetMixin:
+class LLAMASuperNetMixin:
     search_space = None
     handles = None
 
@@ -20,104 +20,113 @@ class LlamaSuperNetMixin:
         head_mask, ffn_mask = self.search_space.config_to_mask(sub_network_config)
         head_mask = head_mask.to(device="cuda", dtype=self.dtype)
         ffn_mask = ffn_mask.to(device="cuda", dtype=self.dtype)
-        self.handles = mask_llama(self.model, ffn_mask, head_mask)
+        
+        # Access the main model structure - LlamaForCausalLM has a 'model' attribute
+        if hasattr(self, "model"):
+            target_model = self.model
+        else:
+            target_model = self
+            
+        self.handles = mask_llama(target_model, ffn_mask, head_mask)
 
     def reset_super_network(self):
         for handle in self.handles:
             handle.remove()
 
 
-class LlamaSuperNetMixinLAYERSpace(LlamaSuperNetMixin):
+class LLAMASuperNetMixinLAYERSpace(LLAMASuperNetMixin):
     @property
     def search_space(self):
         return LayerSearchSpace(self.config)
 
 
-class LlamaSuperNetMixinMEDIUMSpace(LlamaSuperNetMixin):
+class LLAMASuperNetMixinMEDIUMSpace(LLAMASuperNetMixin):
     @property
     def search_space(self):
         return MediumSearchSpace(self.config)
 
 
-class LlamaSuperNetMixinLARGESpace(LlamaSuperNetMixin):
+class LLAMASuperNetMixinLARGESpace(LLAMASuperNetMixin):
     @property
     def search_space(self):
         return FullSearchSpace(self.config)
 
 
-class LlamaSuperNetMixinSMALLSpace(LlamaSuperNetMixin):
+class LLAMASuperNetMixinSMALLSpace(LLAMASuperNetMixin):
     @property
     def search_space(self):
         return SmallSearchSpace(self.config)
 
 
+# CausalLM variants (for text generation)
+class SuperNetLlamaForCausalLMSMALL(
+    LlamaForCausalLM, LLAMASuperNetMixinSMALLSpace
+):
+    def forward(self, inputs, **kwargs):
+        if isinstance(inputs, dict):
+            return super().forward(**inputs)
+        return super().forward(**kwargs)
+
+
+class SuperNetLlamaForCausalLMLAYER(
+    LlamaForCausalLM, LLAMASuperNetMixinLAYERSpace
+):
+    def forward(self, inputs, **kwargs):
+        if isinstance(inputs, dict):
+            return super().forward(**inputs)
+        return super().forward(**kwargs)
+
+
+class SuperNetLlamaForCausalLMMEDIUM(
+    LlamaForCausalLM, LLAMASuperNetMixinMEDIUMSpace
+):
+    def forward(self, inputs, **kwargs):
+        if isinstance(inputs, dict):
+            return super().forward(**inputs)
+        return super().forward(**kwargs)
+
+
+class SuperNetLlamaForCausalLMLARGE(
+    LlamaForCausalLM, LLAMASuperNetMixinLARGESpace
+):
+    def forward(self, inputs, **kwargs):
+        if isinstance(inputs, dict):
+            return super().forward(**inputs)
+        return super().forward(**kwargs)
+
+
+# SequenceClassification variants (for classification tasks)
 class SuperNetLlamaForSequenceClassificationSMALL(
-    LlamaForSequenceClassification, LlamaSuperNetMixinSMALLSpace
+    LlamaForSequenceClassification, LLAMASuperNetMixinSMALLSpace
 ):
     def forward(self, inputs, **kwargs):
         if isinstance(inputs, dict):
             return super().forward(**inputs)
-        return super().forward(**inputs)
-
-
-class SuperNetLlamaModelSMALL(
-    LlamaModel, LlamaSuperNetMixinSMALLSpace
-):
-    def forward(self, inputs, **kwargs):
-        if isinstance(inputs, dict):
-            return super().forward(**inputs)
-        return super().forward(**inputs)
+        return super().forward(**kwargs)
 
 
 class SuperNetLlamaForSequenceClassificationLAYER(
-    LlamaForSequenceClassification, LlamaSuperNetMixinLAYERSpace
+    LlamaForSequenceClassification, LLAMASuperNetMixinLAYERSpace
 ):
     def forward(self, inputs, **kwargs):
         if isinstance(inputs, dict):
             return super().forward(**inputs)
-        return super().forward(**inputs)
-
-
-class SuperNetLlamaModelLAYER(
-    LlamaModel, LlamaSuperNetMixinLAYERSpace
-):
-    def forward(self, inputs, **kwargs):
-        if isinstance(inputs, dict):
-            return super().forward(**inputs)
-        return super().forward(**inputs)
+        return super().forward(**kwargs)
 
 
 class SuperNetLlamaForSequenceClassificationMEDIUM(
-    LlamaForSequenceClassification, LlamaSuperNetMixinMEDIUMSpace
+    LlamaForSequenceClassification, LLAMASuperNetMixinMEDIUMSpace
 ):
     def forward(self, inputs, **kwargs):
         if isinstance(inputs, dict):
             return super().forward(**inputs)
-        return super().forward(**inputs)
-
-
-class SuperNetLlamaModelMEDIUM(
-    LlamaModel, LlamaSuperNetMixinMEDIUMSpace
-):
-    def forward(self, inputs, **kwargs):
-        if isinstance(inputs, dict):
-            return super().forward(**inputs)
-        return super().forward(**inputs)
+        return super().forward(**kwargs)
 
 
 class SuperNetLlamaForSequenceClassificationLARGE(
-    LlamaForSequenceClassification, LlamaSuperNetMixinLARGESpace
+    LlamaForSequenceClassification, LLAMASuperNetMixinLARGESpace
 ):
     def forward(self, inputs, **kwargs):
         if isinstance(inputs, dict):
             return super().forward(**inputs)
-        return super().forward(**inputs)
-
-
-class SuperNetLlamaModelLARGE(
-    LlamaModel, LlamaSuperNetMixinLARGESpace
-):
-    def forward(self, inputs, **kwargs):
-        if isinstance(inputs, dict):
-            return super().forward(**inputs)
-        return super().forward(**inputs)
+        return super().forward(**kwargs)
