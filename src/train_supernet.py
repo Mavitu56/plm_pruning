@@ -310,7 +310,18 @@ def main():
     is_regression = True if data_args.task_name == "stsb" else False
 
     def loss_function(predictions, labels):
-        return predictions.loss
+        loss_value = predictions.loss
+        
+        # Handle LLaMA's loss format
+        if not isinstance(loss_value, torch.Tensor):
+            # Convert to tensor while preserving the value (don't use zero)
+            return torch.tensor(loss_value, device=labels.device, requires_grad=True)
+        
+        # Ensure requires_grad is True
+        if not loss_value.requires_grad:
+            return loss_value.clone().detach().requires_grad_(True)
+            
+        return loss_value
 
     sampler = RandomSampler(search_space.config_space, seed=training_args.seed)
     training_strategies = {
