@@ -66,6 +66,26 @@ def mask_llama(model, neuron_mask, head_mask):
     
     assert head_mask.shape[0] == num_hidden_layers
     
+    # Get dimensions from actual model
+    sample_ffn = get_ffn2(model, 0)
+    actual_ffn_dim = sample_ffn.weight.shape[1]  # Entrada do FFN2 (down_proj)
+    
+    print(f"Neuron mask shape: {neuron_mask.shape}")
+    print(f"Actual FFN dimension: {actual_ffn_dim}")
+    
+    # Resize mask if needed
+    if neuron_mask.shape[1] != actual_ffn_dim:
+        print(f"WARNING: Resizing neuron mask from {neuron_mask.shape[1]} to {actual_ffn_dim}")
+        import torch
+        resized_mask = torch.ones((num_hidden_layers, actual_ffn_dim), 
+                                  device=neuron_mask.device, 
+                                  dtype=neuron_mask.dtype)
+        # Copy values up to the minimum size
+        min_dim = min(neuron_mask.shape[1], actual_ffn_dim)
+        for i in range(num_hidden_layers):
+            resized_mask[i, :min_dim] = neuron_mask[i, :min_dim]
+        neuron_mask = resized_mask
+    
     handles = []
     for layer_idx in range(num_hidden_layers):
         # Mask neurons in feed-forward network

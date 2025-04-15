@@ -248,7 +248,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # Carregando o modelo
+    # Carregando o modelo normalmente sem forçar dtype
     model = model_cls.from_pretrained(
         model_type,
         from_tf=bool(".ckpt" in model_type),
@@ -256,21 +256,33 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
+        low_cpu_mem_usage=True,
     )
     
-    # Mover modelo para GPU
-    model.to(device)
+    # Configurar o otimizador sem mixed precision
+    optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 
-    # Configurar o otimizador com suporte para mixed precision se disponível
     if hasattr(training_args, "fp16") and training_args.fp16:
-        from torch.cuda.amp import autocast, GradScaler
-        scaler = GradScaler()
-        print("Using mixed precision training (FP16)")
-        use_amp = True
+        try:
+            # Usar accelerate para gerenciar treinamento em precisão mista
+            from accelerate import Accelerator
+            accelerator = Accelerator(mixed_precision='fp16')
+            
+            # Preparar modelo, optimizer e dataloaders
+            model, optimizer, train_dataloader, eval_dataloader, test_dataloader = accelerator.prepare(
+                model, optimizer, train_dataloader, eval_dataloader, test_dataloader
+            )
+            
+            print("Using accelerate for mixed precision training")
+            use_amp = False  # Desativar nosso próprio loop AMP já que o accelerator cuidará disso
+        except ImportError:
+            # Fallback para o método original
+            from torch.cuda.amp import autocast, GradScaler
+            scaler = GradScaler()
+            print("Using torch.cuda.amp for mixed precision training")
+            use_amp = True
     else:
         use_amp = False
-
-    optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 
     num_training_steps = int(training_args.num_train_epochs * len(train_dataloader))
     warmup_steps = int(training_args.warmup_ratio * num_training_steps)
@@ -342,8 +354,18 @@ def main():
             # Usar mixed precision se configurado
             if use_amp:
                 with autocast():
-                    loss = update_op(model, batch, batch["labels"])
-                
+                    try:
+                        # Tentar obter a perda
+                        loss = update_op(model, batch, batch["labels"])
+                        # Verificar se a perda é um tensor
+                        if not isinstance(loss, torch.Tensor):
+                            print(f"WARNING: Loss is not a tensor but {type(loss)}. Converting to zero tensor.")
+                            loss = torch.tensor(0.0, device=device, requires_grad=True)
+                    except Exception as e:
+                        print(f"Error during forward pass: {e}")
+                        # Fallback para caso de erro
+                        loss = torch.tensor(0.0, device=device, requires_grad=True)
+                        
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()

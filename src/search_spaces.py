@@ -18,16 +18,26 @@ class SearchSpace:
             self.intermediate_size = (
                 config.n_inner if config.n_inner is not None else 4 * config.hidden_size
             )
-        elif config.model_type == "llama":
-            # Ajustes para LLaMA (podem variar se seu config for diferente)
+        elif config.model_type == "llama" or "llama" in config.model_type.lower():
+            # Melhoria na detecção do LLaMA
             self.num_heads = config.num_attention_heads
             self.num_layers = config.num_hidden_layers
-            # Caso precise calcular o intermediate_size dinamicamente (p. ex.: hidden_size * 4)
-            # aqui fazemos o seguinte:
-            if hasattr(config, "n_inner") and config.n_inner is not None:
+            
+            # Detectar o tamanho correto
+            if hasattr(config, "intermediate_size") and config.intermediate_size is not None:
+                self.intermediate_size = config.intermediate_size
+            elif hasattr(config, "n_inner") and config.n_inner is not None:
                 self.intermediate_size = config.n_inner
             else:
                 self.intermediate_size = 4 * config.hidden_size
+                
+            # Adicionar logs para diagnóstico
+            print(f"LLaMA model detected:")
+            print(f"  - model_type: {config.model_type}")
+            print(f"  - hidden_size: {config.hidden_size}")
+            print(f"  - intermediate_size: {self.intermediate_size}")
+            print(f"  - num_heads: {self.num_heads}")
+            print(f"  - num_layers: {self.num_layers}")
         else:
             self.num_heads = config.num_attention_heads
             self.num_layers = config.num_hidden_layers
