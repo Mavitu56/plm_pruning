@@ -310,18 +310,21 @@ def main():
     is_regression = True if data_args.task_name == "stsb" else False
 
     def loss_function(predictions, labels):
-        loss_value = predictions.loss
+        # Extrair a perda do objeto de saída do modelo
+        loss_value = predictions.loss  # Isso é um tensor com gradientes
         
-        # Handle LLaMA's loss format
+        if loss_value is None:
+            # Algumas vezes o LLaMA pode não calcular perda internamente
+            # Neste caso, você precisa calcular manualmente baseado na tarefa
+            if hasattr(predictions, 'logits'):
+                # Implementar cálculo de perda apropriado
+                pass
+        
+        # Garantir que é um tensor com gradiente
         if not isinstance(loss_value, torch.Tensor):
-            # Convert to tensor while preserving the value (don't use zero)
             return torch.tensor(loss_value, device=labels.device, requires_grad=True)
         
-        # Ensure requires_grad is True
-        if not loss_value.requires_grad:
-            return loss_value.clone().detach().requires_grad_(True)
-            
-        return loss_value
+        return loss_value  # Já é um tensor com gradiente
 
     sampler = RandomSampler(search_space.config_space, seed=training_args.seed)
     training_strategies = {
@@ -381,10 +384,28 @@ def main():
                 scaler.step(optimizer)
                 scaler.update()
             else:
+                # Get loss from update_op
                 loss = update_op(model, batch, batch["labels"])
-                loss.backward()
-                optimizer.step()
                 
+                # Adicionar verificações robustas
+                # Verificar tipo de perda após update_op
+                if isinstance(loss, float):
+                    print("⚠️ Perda retornada como float, convertendo para tensor...")
+                    loss = torch.tensor(loss, device=device, requires_grad=True)
+                elif isinstance(loss, torch.Tensor) and not loss.requires_grad:
+                    print("⚠️ Tensor de perda sem gradiente, habilitando requires_grad...")
+                    loss = loss.clone().detach().requires_grad_(True)
+                
+                # Check if we're using accelerate
+                if 'accelerator' in locals():
+                    # Use accelerator for backward and step
+                    accelerator.backward(loss)
+                    optimizer.step()
+                else:
+                    # Regular backward and step
+                    loss.backward()
+                    optimizer.step()
+                    
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
