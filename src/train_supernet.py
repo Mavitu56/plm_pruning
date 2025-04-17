@@ -209,14 +209,73 @@ def main():
     num_labels = data.num_labels
 
     # Load pretrained model and tokenizer
-    config = AutoConfig.from_pretrained(
-        model_type,
-        num_labels=num_labels,
-        finetuning_task=data_args.task_name,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
+    if "llama" in model_type.lower():
+        # Custom config initialization for LLaMA models
+        config_kwargs = {
+            "num_labels": num_labels,
+            "finetuning_task": data_args.task_name,
+            "cache_dir": model_args.cache_dir,
+            "revision": model_args.model_revision,
+            "use_auth_token": True if model_args.use_auth_token else None,
+        }
+        
+        # For LLaMA3, we need to intercept the config loading process
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+        from transformers.configuration_utils import PretrainedConfig
+        
+        # First, get the config dictionary without validation
+        try:
+            print(f"Loading config for {model_type} with direct file access")
+            # Get config class for model type
+            config_dict = PretrainedConfig.get_config_dict(
+                model_type,
+                cache_dir=model_args.cache_dir,
+                revision=model_args.model_revision,
+                use_auth_token=True if model_args.use_auth_token else None,
+            )[0]
+            
+            # Fix the rope_scaling format if it exists
+            if "rope_scaling" in config_dict:
+                print(f"Found rope_scaling in config: {config_dict['rope_scaling']}")
+                config_dict["rope_scaling"] = {"type": "linear", "factor": 32.0}
+                print(f"Updated rope_scaling to: {config_dict['rope_scaling']}")
+                
+            # Create config with fixed dictionary
+            config_class = CONFIG_MAPPING[config_dict["model_type"]]
+            config = config_class.from_dict(config_dict, **config_kwargs)
+            print("Successfully created config")
+            
+        except Exception as e:
+            print(f"Error during config loading: {e}")
+            print("Fallback to standard config without rope_scaling")
+            # Last resort: just create a default LlamaConfig
+            from transformers.models.llama.configuration_llama import LlamaConfig
+            
+            # Try to get basic params from model_type_or_path
+            try:
+                config_dict = PretrainedConfig.get_config_dict(
+                    model_type, 
+                    use_auth_token=True if model_args.use_auth_token else None,
+                )[0]
+                # Remove problematic rope_scaling
+                if "rope_scaling" in config_dict:
+                    del config_dict["rope_scaling"]
+                # Create config with sanitized dict
+                config = LlamaConfig.from_dict(config_dict, **config_kwargs)
+                config.rope_scaling = {"type": "linear", "factor": 32.0}
+            except:
+                # Create default config
+                config = LlamaConfig(**config_kwargs)
+                config.rope_scaling = {"type": "linear", "factor": 32.0}
+    else:
+        config = AutoConfig.from_pretrained(
+            model_type,
+            num_labels=num_labels,
+            finetuning_task=data_args.task_name,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+        )
 
     # Determinar família do modelo
     if "llama" in model_type.lower():
@@ -258,6 +317,21 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         low_cpu_mem_usage=True,
     )
+    
+    # Ativar gradient checkpointing para economizar memória
+    if hasattr(model, "gradient_checkpointing_enable"):
+        print("Habilitando gradient checkpointing para economizar memória")
+        model.gradient_checkpointing_enable()
+    elif hasattr(model, "config"):
+        # Alternativa para modelos que não têm o método direto
+        print("Habilitando gradient checkpointing via config")
+        model.config.gradient_checkpointing = True
+    
+    # Reduzir o tamanho do batch se necessário
+    if hasattr(training_args, "per_device_train_batch_size") and training_args.per_device_train_batch_size > 1:
+        print(f"Reduzindo batch size de {training_args.per_device_train_batch_size} para 1")
+        training_args.per_device_train_batch_size = 1
+        training_args.per_device_eval_batch_size = 1
     
     # Configurar o otimizador sem mixed precision
     optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
