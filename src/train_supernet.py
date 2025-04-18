@@ -38,7 +38,7 @@ from search_spaces import (
 )
 from data_wrapper.task_data import GLUE_TASK_INFO
 from hf_args import DataTrainingArguments, ModelArguments, parse_model_name
-from data_wrapper import Glue, IMDB, SWAG, AlpacaDataset
+from data_wrapper import Glue, IMDB, SWAG
 from bert import (
     SuperNetBertForMultipleChoiceSMALL,
     SuperNetBertForMultipleChoiceMEDIUM,
@@ -60,15 +60,16 @@ from roberta import (
     SuperNetRobertaForSequenceClassificationLARGE,
 )
 from llama import (
-    SuperNetLlamaForCausalLMSMALL,
-    SuperNetLlamaForCausalLMMEDIUM,
-    SuperNetLlamaForCausalLMLAYER,
-    SuperNetLlamaForCausalLMLARGE,
     SuperNetLlamaForSequenceClassificationSMALL,
     SuperNetLlamaForSequenceClassificationMEDIUM,
     SuperNetLlamaForSequenceClassificationLAYER,
     SuperNetLlamaForSequenceClassificationLARGE,
+    SuperNetLlamaForCausalLMSMALL,
+    SuperNetLlamaForCausalLMMEDIUM,
+    SuperNetLlamaForCausalLMLAYER,
+    SuperNetLlamaForCausalLMLARGE,
 )
+from data_wrapper import Alpaca  # Importe o wrapper para dados Alpaca
 
 
 def kd_loss(
@@ -122,7 +123,6 @@ model_types["roberta"] = {
         "large": SuperNetRobertaForMultipleChoiceLARGE,
     },
 }
-# Adicionar suporte para LLaMA
 model_types["llama"] = {
     "seq_classification": {
         "small": SuperNetLlamaForSequenceClassificationSMALL,
@@ -131,14 +131,12 @@ model_types["llama"] = {
         "large": SuperNetLlamaForSequenceClassificationLARGE,
     },
     "multiple_choice": {
-        # Para múltipla escolha, caso necessário
         "small": SuperNetLlamaForSequenceClassificationSMALL,
         "medium": SuperNetLlamaForSequenceClassificationMEDIUM, 
         "layer": SuperNetLlamaForSequenceClassificationLAYER,
         "large": SuperNetLlamaForSequenceClassificationLARGE,
     },
     "causal_lm": {
-        # Para geração de texto
         "small": SuperNetLlamaForCausalLMSMALL,
         "medium": SuperNetLlamaForCausalLMMEDIUM,
         "layer": SuperNetLlamaForCausalLMLAYER,
@@ -198,8 +196,7 @@ def main():
         metric = evaluate.load("accuracy")
         metric_name = "accuracy"
     elif data_args.task_name == "alpaca":
-        # Adicionar suporte para dataset Alpaca
-        data = AlpacaDataset(
+        data = Alpaca(
             training_args=training_args, model_args=model_args, data_args=data_args
         )
         metric = evaluate.load("perplexity")
@@ -209,92 +206,31 @@ def main():
     num_labels = data.num_labels
 
     # Load pretrained model and tokenizer
-    if "llama" in model_type.lower():
-        # Custom config initialization for LLaMA models
-        config_kwargs = {
-            "num_labels": num_labels,
-            "finetuning_task": data_args.task_name,
-            "cache_dir": model_args.cache_dir,
-            "revision": model_args.model_revision,
-            "use_auth_token": True if model_args.use_auth_token else None,
-        }
-        
-        # For LLaMA3, we need to intercept the config loading process
-        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
-        from transformers.configuration_utils import PretrainedConfig
-        
-        # First, get the config dictionary without validation
-        try:
-            print(f"Loading config for {model_type} with direct file access")
-            # Get config class for model type
-            config_dict = PretrainedConfig.get_config_dict(
-                model_type,
-                cache_dir=model_args.cache_dir,
-                revision=model_args.model_revision,
-                use_auth_token=True if model_args.use_auth_token else None,
-            )[0]
-            
-            # Fix the rope_scaling format if it exists
-            if "rope_scaling" in config_dict:
-                print(f"Found rope_scaling in config: {config_dict['rope_scaling']}")
-                config_dict["rope_scaling"] = {"type": "linear", "factor": 32.0}
-                print(f"Updated rope_scaling to: {config_dict['rope_scaling']}")
-                
-            # Create config with fixed dictionary
-            config_class = CONFIG_MAPPING[config_dict["model_type"]]
-            config = config_class.from_dict(config_dict, **config_kwargs)
-            print("Successfully created config")
-            
-        except Exception as e:
-            print(f"Error during config loading: {e}")
-            print("Fallback to standard config without rope_scaling")
-            # Last resort: just create a default LlamaConfig
-            from transformers.models.llama.configuration_llama import LlamaConfig
-            
-            # Try to get basic params from model_type_or_path
-            try:
-                config_dict = PretrainedConfig.get_config_dict(
-                    model_type, 
-                    use_auth_token=True if model_args.use_auth_token else None,
-                )[0]
-                # Remove problematic rope_scaling
-                if "rope_scaling" in config_dict:
-                    del config_dict["rope_scaling"]
-                # Create config with sanitized dict
-                config = LlamaConfig.from_dict(config_dict, **config_kwargs)
-                config.rope_scaling = {"type": "linear", "factor": 32.0}
-            except:
-                # Create default config
-                config = LlamaConfig(**config_kwargs)
-                config.rope_scaling = {"type": "linear", "factor": 32.0}
-    else:
-        config = AutoConfig.from_pretrained(
-            model_type,
-            num_labels=num_labels,
-            finetuning_task=data_args.task_name,
-            cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-        )
+    config = AutoConfig.from_pretrained(
+        model_type,
+        num_labels=num_labels,
+        finetuning_task=data_args.task_name,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
+    )
 
-    # Determinar família do modelo
-    if "llama" in model_type.lower():
-        model_family = "llama"
-    elif model_type.startswith("bert"):
+    if model_type.startswith("bert"):
         model_family = "bert"
     elif model_type.startswith("roberta"):
         model_family = "roberta"
+    elif "llama" in model_type.lower():
+        model_family = "llama"
     else:
         print(
-            f"Model type {model_type} is not supported. "
+            f"Model type {model_type} are not supported. "
             f"We only support models of the BERT, RoBERTa, or LLaMA family."
         )
         raise NotImplementedError
 
-    # Selecionar a classe de modelo apropriada
     if data_args.task_name in ["swag"]:
         model_cls = model_types[model_family]["multiple_choice"][nas_args.search_space]
-    elif data_args.task_name in ["alpaca"]:
+    elif data_args.task_name == "alpaca":
         model_cls = model_types[model_family]["causal_lm"][nas_args.search_space]
     else:
         model_cls = model_types[model_family]["seq_classification"][
@@ -303,11 +239,6 @@ def main():
 
     search_space = search_spaces[nas_args.search_space](config, seed=training_args.seed)
 
-    # Garantir que a GPU está sendo utilizada se disponível
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
-    # Carregando o modelo normalmente sem forçar dtype
     model = model_cls.from_pretrained(
         model_type,
         from_tf=bool(".ckpt" in model_type),
@@ -315,48 +246,9 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
-        low_cpu_mem_usage=True,
     )
-    
-    # Ativar gradient checkpointing para economizar memória
-    if hasattr(model, "gradient_checkpointing_enable"):
-        print("Habilitando gradient checkpointing para economizar memória")
-        model.gradient_checkpointing_enable()
-    elif hasattr(model, "config"):
-        # Alternativa para modelos que não têm o método direto
-        print("Habilitando gradient checkpointing via config")
-        model.config.gradient_checkpointing = True
-    
-    # Reduzir o tamanho do batch se necessário
-    if hasattr(training_args, "per_device_train_batch_size") and training_args.per_device_train_batch_size > 1:
-        print(f"Reduzindo batch size de {training_args.per_device_train_batch_size} para 1")
-        training_args.per_device_train_batch_size = 1
-        training_args.per_device_eval_batch_size = 1
-    
-    # Configurar o otimizador sem mixed precision
-    optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 
-    if hasattr(training_args, "fp16") and training_args.fp16:
-        try:
-            # Usar accelerate para gerenciar treinamento em precisão mista
-            from accelerate import Accelerator
-            accelerator = Accelerator(mixed_precision='fp16')
-            
-            # Preparar modelo, optimizer e dataloaders
-            model, optimizer, train_dataloader, eval_dataloader, test_dataloader = accelerator.prepare(
-                model, optimizer, train_dataloader, eval_dataloader, test_dataloader
-            )
-            
-            print("Using accelerate for mixed precision training")
-            use_amp = False  # Desativar nosso próprio loop AMP já que o accelerator cuidará disso
-        except ImportError:
-            # Fallback para o método original
-            from torch.cuda.amp import autocast, GradScaler
-            scaler = GradScaler()
-            print("Using torch.cuda.amp for mixed precision training")
-            use_amp = True
-    else:
-        use_amp = False
+    optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 
     num_training_steps = int(training_args.num_train_epochs * len(train_dataloader))
     warmup_steps = int(training_args.warmup_ratio * num_training_steps)
@@ -378,27 +270,16 @@ def main():
 
     progress_bar = tqdm(range(num_training_steps))
 
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    model.to(device)
+
     step = 0
     print(f"Use {nas_args.sampling_strategy} to update super-network training")
 
     is_regression = True if data_args.task_name == "stsb" else False
 
     def loss_function(predictions, labels):
-        # Extrair a perda do objeto de saída do modelo
-        loss_value = predictions.loss  # Isso é um tensor com gradientes
-        
-        if loss_value is None:
-            # Algumas vezes o LLaMA pode não calcular perda internamente
-            # Neste caso, você precisa calcular manualmente baseado na tarefa
-            if hasattr(predictions, 'logits'):
-                # Implementar cálculo de perda apropriado
-                pass
-        
-        # Garantir que é um tensor com gradiente
-        if not isinstance(loss_value, torch.Tensor):
-            return torch.tensor(loss_value, device=labels.device, requires_grad=True)
-        
-        return loss_value  # Já é um tensor com gradiente
+        return predictions.loss
 
     sampler = RandomSampler(search_space.config_space, seed=training_args.seed)
     training_strategies = {
@@ -439,79 +320,31 @@ def main():
         for batch in train_dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            # Usar mixed precision se configurado
-            if use_amp:
-                with autocast():
-                    try:
-                        # Tentar obter a perda
-                        loss = update_op(model, batch, batch["labels"])
-                        # Verificar se a perda é um tensor
-                        if not isinstance(loss, torch.Tensor):
-                            print(f"WARNING: Loss is not a tensor but {type(loss)}. Converting to zero tensor.")
-                            loss = torch.tensor(0.0, device=device, requires_grad=True)
-                    except Exception as e:
-                        print(f"Error during forward pass: {e}")
-                        # Fallback para caso de erro
-                        loss = torch.tensor(0.0, device=device, requires_grad=True)
-                        
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                # Get loss from update_op
-                loss = update_op(model, batch, batch["labels"])
-                
-                # Adicionar verificações robustas
-                # Verificar tipo de perda após update_op
-                if isinstance(loss, float):
-                    print("⚠️ Perda retornada como float, convertendo para tensor...")
-                    loss = torch.tensor(loss, device=device, requires_grad=True)
-                elif isinstance(loss, torch.Tensor) and not loss.requires_grad:
-                    print("⚠️ Tensor de perda sem gradiente, habilitando requires_grad...")
-                    loss = loss.clone().detach().requires_grad_(True)
-                
-                # Check if we're using accelerate
-                if 'accelerator' in locals():
-                    # Use accelerator for backward and step
-                    accelerator.backward(loss)
-                    optimizer.step()
-                else:
-                    # Regular backward and step
-                    loss.backward()
-                    optimizer.step()
-                    
+            loss = update_op(model, batch, batch["labels"])
+
+            step += 1
+
+            optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
 
-            train_loss += loss.item()
-            step += 1
+            train_loss += loss
 
         model.eval()
-        eval_loss = 0
-        with torch.no_grad():
-            for batch in eval_dataloader:
-                batch = {k: v.to(device) for k, v in batch.items()}
+        for batch in eval_dataloader:
+            batch = {k: v.to(device) for k, v in batch.items()}
 
-                outputs = model(batch)
-                
-                if data_args.task_name == "alpaca":
-                    # Para modelos de linguagem causal, calculamos perplexidade
-                    loss = outputs.loss
-                    eval_loss += loss.item()
-                else:
-                    # Para tarefas de classificação
-                    logits = outputs.logits
-                    predictions = (
-                        torch.squeeze(logits) if is_regression else torch.argmax(logits, dim=-1)
-                    )
-                    metric.add_batch(predictions=predictions, references=batch["labels"])
+            outputs = model(batch)
 
-        if data_args.task_name == "alpaca":
-            # Cálculo de perplexidade para modelos de linguagem
-            eval_metric = {"perplexity": np.exp(eval_loss / len(eval_dataloader))}
-        else:
-            eval_metric = metric.compute()
+            logits = outputs.logits
+            predictions = (
+                torch.squeeze(logits) if is_regression else torch.argmax(logits, dim=-1)
+            )
+
+            metric.add_batch(predictions=predictions, references=batch["labels"])
+
+        eval_metric = metric.compute()
 
         runtime = time.time() - start_time
         print(
@@ -529,30 +362,20 @@ def main():
             print(f"Store checkpoint in: {training_args.output_dir}")
             model.save_pretrained(training_args.output_dir)
 
-    # Teste final
     model.eval()
-    test_loss = 0
-    with torch.no_grad():
-        for batch in test_dataloader:
-            batch = {k: v.to(device) for k, v in batch.items()}
+    for batch in test_dataloader:
+        batch = {k: v.to(device) for k, v in batch.items()}
 
-            outputs = model(batch)
-            
-            if data_args.task_name == "alpaca":
-                loss = outputs.loss
-                test_loss += loss.item()
-            else:
-                logits = outputs.logits
-                predictions = (
-                    torch.squeeze(logits) if is_regression else torch.argmax(logits, dim=-1)
-                )
-                metric.add_batch(predictions=predictions, references=batch["labels"])
+        outputs = model(batch)
 
-    if data_args.task_name == "alpaca":
-        test_metric = {"perplexity": np.exp(test_loss / len(test_dataloader))}
-    else:
-        test_metric = metric.compute()
-        
+        logits = outputs.logits
+        predictions = (
+            torch.squeeze(logits) if is_regression else torch.argmax(logits, dim=-1)
+        )
+
+        metric.add_batch(predictions=predictions, references=batch["labels"])
+
+    test_metric = metric.compute()
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     results = {}
