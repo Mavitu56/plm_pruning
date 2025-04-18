@@ -69,6 +69,7 @@ from llama import (
     SuperNetLlamaForCausalLMLAYER,
     SuperNetLlamaForCausalLMLARGE,
 )
+from llama_config import CustomLlamaConfig  # Import our custom config class
 from data_wrapper import Alpaca  # Importe o wrapper para dados Alpaca
 
 
@@ -206,14 +207,26 @@ def main():
     num_labels = data.num_labels
 
     # Load pretrained model and tokenizer
-    config = AutoConfig.from_pretrained(
-        model_type,
-        num_labels=num_labels,
-        finetuning_task=data_args.task_name,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
+    if "llama" in model_type.lower():
+        # Use our custom config class for Llama models to handle Llama 3's rope_scaling format
+        config = CustomLlamaConfig.from_pretrained(
+            model_type,
+            num_labels=num_labels,
+            finetuning_task=data_args.task_name,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+        )
+    else:
+        # Use standard AutoConfig for other model types
+        config = AutoConfig.from_pretrained(
+            model_type,
+            num_labels=num_labels,
+            finetuning_task=data_args.task_name,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+        )
 
     if model_type.startswith("bert"):
         model_family = "bert"
