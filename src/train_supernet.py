@@ -278,7 +278,9 @@ def main():
         train_loss = 0
         for batch in train_dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
-
+            # Listar apenas métodos (funções)
+            methods = [m for m in dir(model) if callable(getattr(model, m))]
+            print(f"Métodos{methods}")
             loss = update_op(model, batch, batch["labels"])
 
             step += 1
